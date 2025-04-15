@@ -729,7 +729,7 @@ class SudokuGame:
         # Draw buttons
         backtrack_button = self.create_button("Backtracking", WIDTH//2, HEIGHT//2 - 30, 
                                              lambda: self.solve_puzzle("backtracking"))
-        constraint_button = self.create_button("Constraint Propagation", WIDTH//2, HEIGHT//2 + 30, 
+        constraint_button = self.create_button("Constraint Propagation Backtracking", WIDTH//2, HEIGHT//2 + 30, 
                                               lambda: self.solve_puzzle("constraint"))
         back_button = self.create_button("BACK", WIDTH//2, HEIGHT//2 + 90, self.go_back)
         
