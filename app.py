@@ -129,6 +129,11 @@ class SudokuGame:
         self.hints_used = 0
         self.algo_solve_time = 0
         
+        # Solving visualization control
+        self.stop_solving = False
+        self.skip_to_solution = False
+        self.visualize_solving = False
+        
         # Load game data if exists
         self.load_data()
         
@@ -884,6 +889,13 @@ class SudokuGame:
         # Solve the puzzle using the selected algorithm
         start_time = time.perf_counter()
         print(start_time)
+        
+        # Create a copy of the original board to track progress
+        self.progress_board = copy.deepcopy(self.board)
+        
+        # Set flag for visualization
+        self.visualize_solving = True
+        
         if algorithm == "backtracking":
             self.solve_with_backtracking()
         else:  # constraint propagation
@@ -896,6 +908,9 @@ class SudokuGame:
         # Update the board with the solution
         self.board = copy.deepcopy(self.solved_board)
         
+        # Turn off visualization flag
+        self.visualize_solving = False
+        
         # Go back to the game screen
         self.current_state = GameState.NEW_GAME
         self.play_sound(self.success_sound)
@@ -904,8 +919,18 @@ class SudokuGame:
         # Create a copy of the current board
         temp_board = copy.deepcopy(self.original_board)
         
+        # Reset solving control flags
+        self.stop_solving = False
+        self.skip_to_solution = False
+        
         # Solve using backtracking
         def backtrack():
+            # Check if solving should be stopped or skipped
+            if self.stop_solving:
+                return False
+            if self.skip_to_solution:
+                return self.solve_board_silently(temp_board)
+                
             empty = self.find_empty_in_board(temp_board)
             if not empty:
                 return True
@@ -916,14 +941,43 @@ class SudokuGame:
                 if self.is_valid_in_board(temp_board, row, col, num):
                     temp_board[row][col] = num
                     
+                    # Update the progress board and redraw
+                    if hasattr(self, 'visualize_solving') and self.visualize_solving:
+                        self.board = copy.deepcopy(temp_board)
+                        self.active_cell = (row, col)
+                        self.draw_game_screen()
+                        self.draw_solving_controls()
+                        pygame.display.flip()
+                        
+                        # Process events to check for stop/skip button presses
+                        self.process_solving_events()
+                        pygame.time.delay(20)  # Add a small delay to see the progress
+                    
                     if backtrack():
                         return True
                     
                     temp_board[row][col] = 0
+                    
+                    # Show backtracking visually
+                    if hasattr(self, 'visualize_solving') and self.visualize_solving and not self.stop_solving and not self.skip_to_solution:
+                        self.board = copy.deepcopy(temp_board)
+                        self.active_cell = (row, col)
+                        self.draw_game_screen()
+                        self.draw_solving_controls()
+                        pygame.display.flip()
+                        
+                        # Process events to check for stop/skip button presses
+                        self.process_solving_events()
+                        pygame.time.delay(5)  # Shorter delay for backtracking
             
             return False
         
-        backtrack()
+        result = backtrack()
+        
+        # If solving was stopped, keep current board state instead of restoring original
+        if self.stop_solving:
+            # Don't restore the original board, keep current progress
+            return
         
         # Update the solved board
         self.solved_board = copy.deepcopy(temp_board)
@@ -1007,6 +1061,14 @@ class SudokuGame:
                     # Place the value
                     temp_board[row][col] = value
                     
+                    # Update visualization
+                    if hasattr(self, 'visualize_solving') and self.visualize_solving:
+                        self.board = copy.deepcopy(temp_board)
+                        self.active_cell = (row, col)
+                        self.draw_game_screen()
+                        pygame.display.flip()
+                        pygame.time.delay(15)  # Add delay to see progress
+                    
                     # Remove the cell from possible_values
                     del_possible_values = possible_values.pop(min_cell)
                     
@@ -1039,6 +1101,14 @@ class SudokuGame:
                     
                     # If not successful, backtrack
                     temp_board[row][col] = 0
+                    
+                    # Show backtracking visually
+                    if hasattr(self, 'visualize_solving') and self.visualize_solving:
+                        self.board = copy.deepcopy(temp_board)
+                        self.active_cell = (row, col)
+                        self.draw_game_screen()
+                        pygame.display.flip()
+                        pygame.time.delay(5)  # Shorter delay for backtracking
                     
                     # Restore affected cells
                     for cell, prev_values in affected_cells.items():
@@ -1350,6 +1420,78 @@ class SudokuGame:
             
             # Cap the frame rate
             clock.tick(60)
+
+    def solve_board_silently(self, board):
+        """Solve the board without visualization for when user presses Skip button"""
+        # Find an empty cell
+        empty = self.find_empty_in_board(board)
+        if not empty:
+            return True
+        
+        row, col = empty
+        
+        # Try numbers 1-9
+        for num in range(1, 10):
+            if self.is_valid_in_board(board, row, col, num):
+                board[row][col] = num
+                
+                # Recursively solve the rest
+                if self.solve_board_silently(board):
+                    return True
+                
+                # If not successful, backtrack
+                board[row][col] = 0
+        
+        return False
+
+    def draw_solving_controls(self):
+        """Draw the Stop and Skip buttons during solving visualization"""
+        # Create the solving control buttons at the bottom center of the screen
+        stop_button = self.create_button("STOP", WIDTH // 3, HEIGHT - 30, None)
+        skip_button = self.create_button("SKIP", WIDTH * 2 // 3, HEIGHT - 30, None)
+        
+        # Draw the buttons
+        self.draw_button(stop_button)
+        self.draw_button(skip_button)
+        
+        # Store button rectangles for event processing
+        self.stop_button_rect = stop_button["rect"]
+        self.skip_button_rect = skip_button["rect"]
+
+    def process_solving_events(self):
+        """Process events during solving visualization to check for Stop/Skip button clicks"""
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.save_data()
+                pygame.quit()
+                sys.exit()
+            
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:  # Left click
+                    mouse_pos = pygame.mouse.get_pos()
+                    
+                    # Check if Stop button was clicked
+                    if hasattr(self, 'stop_button_rect') and self.stop_button_rect.collidepoint(mouse_pos):
+                        self.play_sound(self.button_sound)
+                        self.stop_solving = True
+                        return
+                    
+                    # Check if Skip button was clicked
+                    if hasattr(self, 'skip_button_rect') and self.skip_button_rect.collidepoint(mouse_pos):
+                        self.play_sound(self.button_sound)
+                        self.skip_to_solution = True
+                        return
+            
+            elif event.type == pygame.KEYDOWN:
+                # Stop solving with Escape key
+                if event.key == pygame.K_ESCAPE:
+                    self.stop_solving = True
+                    return
+                
+                # Skip to solution with Space key
+                if event.key == pygame.K_SPACE:
+                    self.skip_to_solution = True
+                    return
 
 # Run the game
 if __name__ == "__main__":
